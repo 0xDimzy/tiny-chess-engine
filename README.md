@@ -1,56 +1,45 @@
-# Tiny Chess — 4KB Python engine
+# Tiny Chess — v2 entry (0x88 mailbox, PVS + TT + quiescence)
 
-Compact chess engine in at most 4,096 bytes of Python (stdlib only), for the
-make.fun `tiny-chess-01` bounty. The shipped file is `main.py`: an LZMA-packed
-payload from `makefun compress` applied to the readable source `engine.py`
-(kept in the working directory for the transcript bundle, not committed, to
-stay inside the 8,192-byte tree cap).
+Engine: iterative deepening, fixed 50,000-node budget (deterministic, never a
+clock), PVS, 2^17-slot transposition table, 2 killers/ply, butterfly history,
+null-move pruning (R=2/3), LMR, quiescence (captures/promotions; all evasions
+in check), repetition/50-move draws with contempt. Eval: material + Michniewski
+PSTs (÷5, flat list), mg/eg taper, bishop-pair term (+30), game-history
+repetition avoidance.
 
-## Approach
+v2 changes vs the submitted v1: bishop-pair term re-added, repetition
+avoidance via game history (the 6 threefold draws in v1 trials t1/t2 — all in
+better positions — became 4 wins, 2 losses, 0 draws), code golfed to free
+room. Perft-clean (startpos d4 = 197,281; Kiwipete d3 = 97,862). Slowest move
+2.09 s (limit 10 s).
 
-- **Board:** 0x88 mailbox, white pawns move +16.
-- **Eval:** material (P100 N320 B330 R500 Q900) + Michniewski piece-square
-  tables with a midgame/endgame taper + bishop pair +30.
-- **Search:** iterative deepening, fixed 50,000 nodes/move (deterministic,
-  never a clock), PVS, transposition table (2^17 slots), 2 killers/ply,
-  butterfly history, null-move pruning (R=2/3), LMR, quiescence
-  (captures/promotions; all evasions in check), repetition/50-move draws
-  with contempt.
-- **Move gen:** pseudo-legal + make/unmake king-safety check; en passant,
-  castling, promotions. Perft-clean (startpos d4 = 197,281; Kiwipete
-  d3 = 97,862).
-- **Protocol:** HTTP to the kit env (`/game`, `/move`), position rebuilt
-  from the FEN each turn.
+## Local practice trials (kit, 8 games each, same 8 house engines)
 
-## Local results (kit practice trials)
+| engine | t0 | t1 | t2 | mean |
+|---|---|---|---|---|
+| v1 shipped (4,084 B) | 1,530 (5-0-3) | 1,464 (3-3-2) | 1,326 (2-3-3) | 1,440 |
+| **v2 (3,980 B)** | **1,464 (4-1-3)** | **1,598 (5-1-2)** | **1,464 (4-1-3)** | **1,509** |
+| v2 + opening book (4,089 B) | 1,530 (4-2-2) | 1,396 (4-0-4) | 1,396 (4-0-4) | 1,441 |
 
-Dev engine: trial 0 — 4-0-4, Elo 1,396; trial 1 — 5-0-3, Elo 1,530
-(mean 1,463).
+v2 is +69 Elo over v1. Still below the ~1,600 top-50 bar (rank 100 = 1,530).
 
-Shipped `main.py` (4,084 bytes) is the same engine with two size-driven
-cuts: the bishop-pair term is removed and the game-history replay for
-3-fold repetition detection is dropped (repetition is still detected
-inside the search tree). Validated on all 3 practice trials:
+## Opening book — tested and REJECTED
 
-- Trial 0: **5-0-3, Elo 1,530** (7 games by checkmate; game 8 cut short by
-  a service restart, scored as an abandoned loss — the engine did not
-  crash). Wins vs depth-2/3/4 and nodes-100k/250k; losses to
-  nodes-500k/1M/2M.
-- Trial 1: **3-3-2, Elo 1,464** (3 draws by threefold repetition).
-- Trial 2: **2-3-3, Elo 1,326** (3 draws by threefold repetition).
-- **Mean Elo 1,440** — above the 1,154 practice floor and the ~1,325
-  house-baseline mean. The repetition draws are the cost of the dropped
-  game-history detection; the cuts cost very little strength.
+A 7-entry Stockfish depth-24 book (dict literal keyed on the low 20 bits of the
+engine's Zobrist hash, legality-checked) was built, packed to 4,089 bytes, and
+run through all 3 practice trials. Measured: 1,441 mean, −68 vs v2 without the
+book, +1 vs v1. The three entries that fired: slav a2a4 (loss→draw), catalan
+g1f3 (win kept), english-reversed-sicilian f1g2 (win→loss — Stockfish says
++139 cp, our engine loses the resulting position while winning from its own
+choice). The three highest-value entries (alekhine BREP +223, kings-indian W11
++163, alekhine W11 +147) never fire in practice trials 0–2 (those openings do
+not appear); only scored trials with fresh seeds could reach them. The
+Stockfish-value model does not transfer to this engine, so the book is NOT in
+this entry. Book version preserved at `dev/chess/main_v2_book.py` (4,089 B).
 
-Time per move at 50,000 nodes: ~1.0–1.8 s (startpos 1.21 s, Italian
-middlegame 1.77 s, endgame 1.04 s), inside the 10 s/move limit.
+## Files
 
-## Size budget (4,096 bytes)
-
-`main.py`: **4,084 bytes** (12 bytes of headroom). The LZMA payload is
-dominated by search and move-generation logic; the piece-square tables are
-stored divided by 5 as a flat list to keep their packed cost low.
-
-## Licence
-
-MIT — see `LICENSE`.
+- `main.py` — packed entry (3,980 bytes, `makefun compress` of `engine.py`)
+- `engine.py` — readable source (gitignored, kept for the bundle)
+- `LICENSE` — MIT (SPDX line required by the `license_osi` check)
+- `.makefun/owner.json` — payout wallet
